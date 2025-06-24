@@ -1,32 +1,62 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { Edit3, Save, X, Phone, MapPin, Globe, FileText, Camera } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const DoctorProfile: React.FC = () => {
+  const { user, updateProfile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [profileData, setProfileData] = useState({
-    firstName: 'Dr. Sarah',
-    lastName: 'Johnson',
-    email: 'sarah.johnson@email.com',
-    phone: '+1-555-0123',
-    nationality: 'American',
-    specialties: 'Cardiology, Internal Medicine',
-    website: 'https://sarahjohnson.com',
-    socialMedia: '@drsarahjohnson',
-    profileImage: 'https://images.pexels.com/photos/5452293/pexels-photo-5452293.jpeg?auto=compress&cs=tinysrgb&w=400',
-    bio: 'Experienced cardiologist with over 10 years of practice. Specialized in interventional cardiology and preventive heart care.'
+    first_name: '',
+    last_name: '',
+    phone: '',
+    nationality: '',
+    specialties: '',
+    website: '',
+    social_media: '',
+    bio: '',
+    profile_image_url: ''
   });
 
   const [editData, setEditData] = useState(profileData);
+
+  useEffect(() => {
+    if (user?.profile) {
+      const profile = user.profile;
+      const data = {
+        first_name: profile.first_name || '',
+        last_name: profile.last_name || '',
+        phone: profile.phone || '',
+        nationality: profile.nationality || '',
+        specialties: profile.specialties || '',
+        website: profile.website || '',
+        social_media: profile.social_media || '',
+        bio: profile.bio || '',
+        profile_image_url: profile.profile_image_url || ''
+      };
+      setProfileData(data);
+      setEditData(data);
+    }
+  }, [user]);
 
   const handleEdit = () => {
     setEditData(profileData);
     setIsEditing(true);
   };
 
-  const handleSave = () => {
-    setProfileData(editData);
-    setIsEditing(false);
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      await updateProfile(editData);
+      setProfileData(editData);
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Error updating profile:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCancel = () => {
@@ -41,6 +71,36 @@ const DoctorProfile: React.FC = () => {
     }));
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}-${Math.random()}.${fileExt}`;
+      const filePath = `profile-images/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      setEditData(prev => ({
+        ...prev,
+        profile_image_url: data.publicUrl
+      }));
+    } catch (error) {
+      console.error('Error uploading image:', error);
+    }
+  };
+
+  if (!user) return null;
+
   return (
     <Layout title="Doctor Profile">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -51,23 +111,33 @@ const DoctorProfile: React.FC = () => {
               <div className="relative">
                 <img
                   className="h-32 w-32 rounded-full object-cover border-4 border-white shadow-lg"
-                  src={profileData.profileImage}
+                  src={profileData.profile_image_url || `https://ui-avatars.com/api/?name=${profileData.first_name}+${profileData.last_name}&size=128`}
                   alt="Profile"
                 />
                 {isEditing && (
-                  <button className="absolute bottom-0 right-0 bg-white rounded-full p-2 shadow-lg hover:bg-gray-50">
+                  <label className="absolute bottom-0 right-0 bg-white rounded-full p-2 shadow-lg hover:bg-gray-50 cursor-pointer">
                     <Camera className="w-4 h-4 text-gray-600" />
-                  </button>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                    />
+                  </label>
                 )}
               </div>
               <div className="text-center md:text-left text-white">
                 <h1 className="text-3xl font-bold">
-                  {profileData.firstName} {profileData.lastName}
+                  Dr. {profileData.first_name} {profileData.last_name}
                 </h1>
                 <p className="text-xl text-green-100 mt-2">{profileData.specialties}</p>
                 <div className="flex items-center justify-center md:justify-start mt-3 space-x-2">
-                  <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
-                    Verified Doctor
+                  <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    user.isAccountApproved 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-yellow-100 text-yellow-800'
+                  }`}>
+                    {user.isAccountApproved ? 'Verified Doctor' : 'Pending Approval'}
                   </div>
                 </div>
               </div>
@@ -84,10 +154,11 @@ const DoctorProfile: React.FC = () => {
                   <div className="flex space-x-2">
                     <button
                       onClick={handleSave}
-                      className="bg-white text-green-600 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center space-x-2"
+                      disabled={loading}
+                      className="bg-white text-green-600 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center space-x-2 disabled:opacity-50"
                     >
                       <Save className="w-4 h-4" />
-                      <span>Save</span>
+                      <span>{loading ? 'Saving...' : 'Save'}</span>
                     </button>
                     <button
                       onClick={handleCancel}
@@ -116,13 +187,13 @@ const DoctorProfile: React.FC = () => {
                       {isEditing ? (
                         <input
                           type="text"
-                          name="firstName"
-                          value={editData.firstName}
+                          name="first_name"
+                          value={editData.first_name}
                           onChange={handleChange}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                         />
                       ) : (
-                        <p className="text-gray-900">{profileData.firstName}</p>
+                        <p className="text-gray-900">{profileData.first_name}</p>
                       )}
                     </div>
                     <div>
@@ -130,18 +201,18 @@ const DoctorProfile: React.FC = () => {
                       {isEditing ? (
                         <input
                           type="text"
-                          name="lastName"
-                          value={editData.lastName}
+                          name="last_name"
+                          value={editData.last_name}
                           onChange={handleChange}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                         />
                       ) : (
-                        <p className="text-gray-900">{profileData.lastName}</p>
+                        <p className="text-gray-900">{profileData.last_name}</p>
                       )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                      <p className="text-gray-900">{profileData.email}</p>
+                      <p className="text-gray-900">{user.email}</p>
                       <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
                     </div>
                     <div>
@@ -191,7 +262,7 @@ const DoctorProfile: React.FC = () => {
                           placeholder="Tell patients about your experience and expertise..."
                         />
                       ) : (
-                        <p className="text-gray-700">{profileData.bio}</p>
+                        <p className="text-gray-700">{profileData.bio || 'No bio provided'}</p>
                       )}
                     </div>
                   </div>
@@ -242,14 +313,18 @@ const DoctorProfile: React.FC = () => {
                             placeholder="https://your-website.com"
                           />
                         ) : (
-                          <a
-                            href={profileData.website}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800"
-                          >
-                            {profileData.website}
-                          </a>
+                          profileData.website ? (
+                            <a
+                              href={profileData.website}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800"
+                            >
+                              {profileData.website}
+                            </a>
+                          ) : (
+                            <span className="text-gray-500">No website provided</span>
+                          )
                         )}
                       </div>
                     </div>
@@ -258,14 +333,14 @@ const DoctorProfile: React.FC = () => {
                       {isEditing ? (
                         <input
                           type="text"
-                          name="socialMedia"
-                          value={editData.socialMedia}
+                          name="social_media"
+                          value={editData.social_media}
                           onChange={handleChange}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                           placeholder="@username or profile URL"
                         />
                       ) : (
-                        <p className="text-gray-900">{profileData.socialMedia}</p>
+                        <p className="text-gray-900">{profileData.social_media || 'No social media provided'}</p>
                       )}
                     </div>
                   </div>

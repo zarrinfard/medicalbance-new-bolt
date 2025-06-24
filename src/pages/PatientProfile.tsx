@@ -1,27 +1,47 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { Edit3, Save, X, Mail, Calendar, Heart } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const PatientProfile: React.FC = () => {
+  const { user, updateProfile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [profileData, setProfileData] = useState({
-    alias: 'John Doe',
-    email: 'john.doe@email.com',
-    joinDate: '2024-01-15',
-    lastLogin: '2024-01-20',
-    bio: 'Health-conscious individual looking to maintain optimal wellness through regular consultations and preventive care.'
+    alias: '',
+    bio: ''
   });
 
   const [editData, setEditData] = useState(profileData);
+
+  useEffect(() => {
+    if (user?.profile) {
+      const profile = user.profile;
+      const data = {
+        alias: profile.alias || '',
+        bio: profile.bio || ''
+      };
+      setProfileData(data);
+      setEditData(data);
+    }
+  }, [user]);
 
   const handleEdit = () => {
     setEditData(profileData);
     setIsEditing(true);
   };
 
-  const handleSave = () => {
-    setProfileData(editData);
-    setIsEditing(false);
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      await updateProfile(editData);
+      setProfileData(editData);
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Error updating profile:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCancel = () => {
@@ -36,6 +56,8 @@ const PatientProfile: React.FC = () => {
     }));
   };
 
+  if (!user) return null;
+
   return (
     <Layout title="Patient Profile">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -49,7 +71,7 @@ const PatientProfile: React.FC = () => {
                 </div>
               </div>
               <div className="text-center md:text-left text-white">
-                <h1 className="text-3xl font-bold">{profileData.alias}</h1>
+                <h1 className="text-3xl font-bold">{profileData.alias || 'Patient'}</h1>
                 <p className="text-xl text-blue-100 mt-2">Patient</p>
                 <div className="flex items-center justify-center md:justify-start mt-3 space-x-2">
                   <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
@@ -70,10 +92,11 @@ const PatientProfile: React.FC = () => {
                   <div className="flex space-x-2">
                     <button
                       onClick={handleSave}
-                      className="bg-white text-blue-600 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center space-x-2"
+                      disabled={loading}
+                      className="bg-white text-blue-600 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center space-x-2 disabled:opacity-50"
                     >
                       <Save className="w-4 h-4" />
-                      <span>Save</span>
+                      <span>{loading ? 'Saving...' : 'Save'}</span>
                     </button>
                     <button
                       onClick={handleCancel}
@@ -108,14 +131,14 @@ const PatientProfile: React.FC = () => {
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       ) : (
-                        <p className="text-gray-900">{profileData.alias}</p>
+                        <p className="text-gray-900">{profileData.alias || 'Not provided'}</p>
                       )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
                       <div className="flex items-center space-x-2">
                         <Mail className="w-4 h-4 text-gray-400" />
-                        <span className="text-gray-900">{profileData.email}</span>
+                        <span className="text-gray-900">{user.email}</span>
                       </div>
                       <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
                     </div>
@@ -131,7 +154,7 @@ const PatientProfile: React.FC = () => {
                           placeholder="Tell us about yourself and your health goals..."
                         />
                       ) : (
-                        <p className="text-gray-700">{profileData.bio}</p>
+                        <p className="text-gray-700">{profileData.bio || 'No bio provided'}</p>
                       )}
                     </div>
                   </div>
@@ -145,7 +168,7 @@ const PatientProfile: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm text-green-600 font-medium">Consultations</p>
-                          <p className="text-2xl font-bold text-green-700">3</p>
+                          <p className="text-2xl font-bold text-green-700">0</p>
                         </div>
                         <div className="text-green-500">
                           <Heart className="w-8 h-8" />
@@ -156,11 +179,11 @@ const PatientProfile: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm text-blue-600 font-medium">Health Score</p>
-                          <p className="text-2xl font-bold text-blue-700">85%</p>
+                          <p className="text-2xl font-bold text-blue-700">--</p>
                         </div>
                         <div className="text-blue-500">
                           <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-bold">
-                            A
+                            ?
                           </div>
                         </div>
                       </div>
@@ -173,24 +196,10 @@ const PatientProfile: React.FC = () => {
                   <h2 className="text-xl font-semibold text-gray-900 mb-4">Recent Activity</h2>
                   <div className="space-y-3">
                     <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900">Consultation with Dr. Sarah Johnson</p>
-                        <p className="text-xs text-gray-500">2 days ago</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
                       <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900">Profile updated</p>
-                        <p className="text-xs text-gray-500">1 week ago</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                      <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                      <div className="flex-1">
                         <p className="text-sm font-medium text-gray-900">Account created</p>
-                        <p className="text-xs text-gray-500">2 weeks ago</p>
+                        <p className="text-xs text-gray-500">Welcome to MedPlatform!</p>
                       </div>
                     </div>
                   </div>
@@ -208,17 +217,15 @@ const PatientProfile: React.FC = () => {
                       <div className="flex items-center space-x-2">
                         <Calendar className="w-4 h-4 text-gray-400" />
                         <span className="text-sm text-gray-900">
-                          {new Date(profileData.joinDate).toLocaleDateString()}
+                          {user.profile?.created_at ? new Date(user.profile.created_at).toLocaleDateString() : 'Recently'}
                         </span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Login</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Account Status</label>
                       <div className="flex items-center space-x-2">
                         <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                        <span className="text-sm text-gray-900">
-                          {new Date(profileData.lastLogin).toLocaleDateString()}
-                        </span>
+                        <span className="text-sm text-gray-900">Active</span>
                       </div>
                     </div>
                   </div>
@@ -256,7 +263,6 @@ const PatientProfile: React.FC = () => {
                     <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <span className="text-sm text-gray-700">Email Notifications</span>
                       <div className="w-8 h-4 bg-blue-500 rounded-full relative">
-                        
                         <div className="w-4 h-4 bg-white rounded-full shadow absolute top-0 right-0"></div>
                       </div>
                     </div>

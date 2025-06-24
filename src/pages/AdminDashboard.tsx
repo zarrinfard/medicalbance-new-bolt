@@ -1,80 +1,46 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { Search, Filter, Eye, CheckCircle, XCircle, FileText, Globe, Phone, MapPin } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import type { DoctorProfile, Document } from '../lib/supabase';
 
-interface Doctor {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  nationality: string;
-  specialties: string;
-  website?: string;
-  socialMedia?: string;
-  status: 'pending' | 'approved' | 'rejected';
-  registrationDate: string;
-  documents: string[];
-  profileImage?: string;
+interface DoctorWithDocuments extends DoctorProfile {
+  documents: Document[];
 }
 
 const AdminDashboard: React.FC = () => {
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [filteredDoctors, setFilteredDoctors] = useState<Doctor[]>([]);
+  const [doctors, setDoctors] = useState<DoctorWithDocuments[]>([]);
+  const [filteredDoctors, setFilteredDoctors] = useState<DoctorWithDocuments[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
-  const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
+  const [selectedDoctor, setSelectedDoctor] = useState<DoctorWithDocuments | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Mock data
   useEffect(() => {
-    const mockDoctors: Doctor[] = [
-      {
-        id: '1',
-        firstName: 'Dr. Sarah',
-        lastName: 'Johnson',
-        email: 'sarah.johnson@email.com',
-        phone: '+1-555-0123',
-        nationality: 'American',
-        specialties: 'Cardiology, Internal Medicine',
-        website: 'https://sarahjohnson.com',
-        socialMedia: '@drsarahjohnson',
-        status: 'pending',
-        registrationDate: '2024-01-15',
-        documents: ['medical_license.pdf', 'board_certification.pdf'],
-        profileImage: 'https://images.pexels.com/photos/5452293/pexels-photo-5452293.jpeg?auto=compress&cs=tinysrgb&w=400'
-      },
-      {
-        id: '2',
-        firstName: 'Dr. Ahmed',
-        lastName: 'Hassan',
-        email: 'ahmed.hassan@email.com',
-        phone: '+20-555-0456',
-        nationality: 'Egyptian',
-        specialties: 'Pediatrics, Family Medicine',
-        status: 'approved',
-        registrationDate: '2024-01-10',
-        documents: ['medical_license.pdf', 'specialty_certificate.pdf'],
-        profileImage: 'https://images.pexels.com/photos/6749773/pexels-photo-6749773.jpeg?auto=compress&cs=tinysrgb&w=400'
-      },
-      {
-        id: '3',
-        firstName: 'Dr. Maria',
-        lastName: 'Rodriguez',
-        email: 'maria.rodriguez@email.com',
-        phone: '+34-555-0789',
-        nationality: 'Spanish',
-        specialties: 'Dermatology, Cosmetic Surgery',
-        website: 'https://mariarodriguez.clinic',
-        status: 'pending',
-        registrationDate: '2024-01-12',
-        documents: ['medical_license.pdf', 'dermatology_board.pdf', 'surgery_certification.pdf']
-      }
-    ];
-
-    setDoctors(mockDoctors);
-    setFilteredDoctors(mockDoctors);
+    loadDoctors();
   }, []);
+
+  const loadDoctors = async () => {
+    try {
+      const { data: doctorsData, error } = await supabase
+        .from('doctor_profiles')
+        .select(`
+          *,
+          documents (*)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setDoctors(doctorsData || []);
+      setFilteredDoctors(doctorsData || []);
+    } catch (error) {
+      console.error('Error loading doctors:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Filter doctors based on search and status
   useEffect(() => {
@@ -82,65 +48,89 @@ const AdminDashboard: React.FC = () => {
 
     if (searchTerm) {
       filtered = filtered.filter(doctor =>
-        doctor.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        doctor.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        doctor.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        doctor.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        doctor.last_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         doctor.specialties.toLowerCase().includes(searchTerm.toLowerCase()) ||
         doctor.nationality.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
     if (statusFilter !== 'all') {
-      filtered = filtered.filter(doctor => doctor.status === statusFilter);
+      if (statusFilter === 'approved') {
+        filtered = filtered.filter(doctor => doctor.is_approved);
+      } else if (statusFilter === 'pending') {
+        filtered = filtered.filter(doctor => !doctor.is_approved);
+      }
     }
 
     setFilteredDoctors(filtered);
   }, [doctors, searchTerm, statusFilter]);
 
-  const handleApprove = (doctorId: string) => {
-    setDoctors(prev =>
-      prev.map(doctor =>
-        doctor.id === doctorId ? { ...doctor, status: 'approved' as const } : doctor
-      )
-    );
-    setShowModal(false);
-    setSelectedDoctor(null);
+  const handleApprove = async (doctorId: string) => {
+    try {
+      const { error } = await supabase
+        .from('doctor_profiles')
+        .update({ is_approved: true })
+        .eq('id', doctorId);
+
+      if (error) throw error;
+
+      await loadDoctors();
+      setShowModal(false);
+      setSelectedDoctor(null);
+    } catch (error) {
+      console.error('Error approving doctor:', error);
+    }
   };
 
-  const handleReject = (doctorId: string) => {
-    setDoctors(prev =>
-      prev.map(doctor =>
-        doctor.id === doctorId ? { ...doctor, status: 'rejected' as const } : doctor
-      )
-    );
-    setShowModal(false);
-    setSelectedDoctor(null);
+  const handleReject = async (doctorId: string) => {
+    try {
+      const { error } = await supabase
+        .from('doctor_profiles')
+        .update({ is_approved: false })
+        .eq('id', doctorId);
+
+      if (error) throw error;
+
+      await loadDoctors();
+      setShowModal(false);
+      setSelectedDoctor(null);
+    } catch (error) {
+      console.error('Error rejecting doctor:', error);
+    }
   };
 
-  const openDoctorModal = (doctor: Doctor) => {
+  const openDoctorModal = (doctor: DoctorWithDocuments) => {
     setSelectedDoctor(doctor);
     setShowModal(true);
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return <span className="px-2 py-1 text-xs font-semibold bg-yellow-100 text-yellow-800 rounded-full">Pending</span>;
-      case 'approved':
-        return <span className="px-2 py-1 text-xs font-semibold bg-green-100 text-green-800 rounded-full">Approved</span>;
-      case 'rejected':
-        return <span className="px-2 py-1 text-xs font-semibold bg-red-100 text-red-800 rounded-full">Rejected</span>;
-      default:
-        return null;
+  const getStatusBadge = (isApproved: boolean) => {
+    if (isApproved) {
+      return <span className="px-2 py-1 text-xs font-semibold bg-green-100 text-green-800 rounded-full">Approved</span>;
+    } else {
+      return <span className="px-2 py-1 text-xs font-semibold bg-yellow-100 text-yellow-800 rounded-full">Pending</span>;
     }
   };
 
   const stats = {
     total: doctors.length,
-    pending: doctors.filter(d => d.status === 'pending').length,
-    approved: doctors.filter(d => d.status === 'approved').length,
-    rejected: doctors.filter(d => d.status === 'rejected').length
+    pending: doctors.filter(d => !d.is_approved).length,
+    approved: doctors.filter(d => d.is_approved).length,
+    rejected: 0 // We don't have a rejected status in the current schema
   };
+
+  if (loading) {
+    return (
+      <Layout title="Admin Dashboard">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout title="Admin Dashboard">
@@ -175,7 +165,7 @@ const AdminDashboard: React.FC = () => {
               </div>
               <input
                 type="text"
-                placeholder="Search by name, email, specialty, or nationality..."
+                placeholder="Search by name, specialty, or nationality..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -195,7 +185,6 @@ const AdminDashboard: React.FC = () => {
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
                 <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
               </select>
             </div>
           </div>
@@ -221,17 +210,16 @@ const AdminDashboard: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10">
-                          {doctor.profileImage ? (
-                            <img className="h-10 w-10 rounded-full object-cover" src={doctor.profileImage} alt="" />
+                          {doctor.profile_image_url ? (
+                            <img className="h-10 w-10 rounded-full object-cover" src={doctor.profile_image_url} alt="" />
                           ) : (
                             <div className="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
-                              <span className="text-sm text-gray-700">{doctor.firstName[0]}</span>
+                              <span className="text-sm text-gray-700">{doctor.first_name[0]}</span>
                             </div>
                           )}
                         </div>
                         <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">{doctor.firstName} {doctor.lastName}</div>
-                          <div className="text-sm text-gray-500">{doctor.email}</div>
+                          <div className="text-sm font-medium text-gray-900">{doctor.first_name} {doctor.last_name}</div>
                         </div>
                       </div>
                     </td>
@@ -243,10 +231,10 @@ const AdminDashboard: React.FC = () => {
                       <div className="text-sm text-gray-900">{doctor.specialties}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(doctor.status)}
+                      {getStatusBadge(doctor.is_approved)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(doctor.registrationDate).toLocaleDateString()}
+                      {new Date(doctor.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <button
@@ -255,7 +243,7 @@ const AdminDashboard: React.FC = () => {
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      {doctor.status === 'pending' && (
+                      {!doctor.is_approved && (
                         <>
                           <button
                             onClick={() => handleApprove(doctor.id)}
@@ -303,23 +291,22 @@ const AdminDashboard: React.FC = () => {
                 <div className="space-y-6">
                   {/* Profile Section */}
                   <div className="flex items-start space-x-4">
-                    {selectedDoctor.profileImage ? (
+                    {selectedDoctor.profile_image_url ? (
                       <img 
                         className="h-20 w-20 rounded-full object-cover" 
-                        src={selectedDoctor.profileImage} 
+                        src={selectedDoctor.profile_image_url} 
                         alt="" 
                       />
                     ) : (
                       <div className="h-20 w-20 rounded-full bg-gray-300 flex items-center justify-center">
-                        <span className="text-xl text-gray-700">{selectedDoctor.firstName[0]}</span>
+                        <span className="text-xl text-gray-700">{selectedDoctor.first_name[0]}</span>
                       </div>
                     )}
                     <div>
                       <h4 className="text-xl font-semibold text-gray-900">
-                        {selectedDoctor.firstName} {selectedDoctor.lastName}
+                        {selectedDoctor.first_name} {selectedDoctor.last_name}
                       </h4>
-                      <p className="text-gray-600">{selectedDoctor.email}</p>
-                      <div className="mt-2">{getStatusBadge(selectedDoctor.status)}</div>
+                      <div className="mt-2">{getStatusBadge(selectedDoctor.is_approved)}</div>
                     </div>
                   </div>
 
@@ -341,8 +328,16 @@ const AdminDashboard: React.FC = () => {
                     <p className="text-sm text-gray-600">{selectedDoctor.specialties}</p>
                   </div>
 
+                  {/* Bio */}
+                  {selectedDoctor.bio && (
+                    <div>
+                      <h5 className="font-medium text-gray-900 mb-2">Bio</h5>
+                      <p className="text-sm text-gray-600">{selectedDoctor.bio}</p>
+                    </div>
+                  )}
+
                   {/* Website & Social Media */}
-                  {(selectedDoctor.website || selectedDoctor.socialMedia) && (
+                  {(selectedDoctor.website || selectedDoctor.social_media) && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {selectedDoctor.website && (
                         <div className="flex items-center space-x-2">
@@ -357,9 +352,9 @@ const AdminDashboard: React.FC = () => {
                           </a>
                         </div>
                       )}
-                      {selectedDoctor.socialMedia && (
+                      {selectedDoctor.social_media && (
                         <div className="flex items-center space-x-2">
-                          <span className="text-sm text-gray-600">{selectedDoctor.socialMedia}</span>
+                          <span className="text-sm text-gray-600">{selectedDoctor.social_media}</span>
                         </div>
                       )}
                     </div>
@@ -369,17 +364,20 @@ const AdminDashboard: React.FC = () => {
                   <div>
                     <h5 className="font-medium text-gray-900 mb-2">Uploaded Documents</h5>
                     <div className="space-y-2">
-                      {selectedDoctor.documents.map((doc, index) => (
-                        <div key={index} className="flex items-center space-x-2">
+                      {selectedDoctor.documents?.map((doc) => (
+                        <div key={doc.id} className="flex items-center space-x-2">
                           <FileText className="w-4 h-4 text-gray-400" />
-                          <span className="text-sm text-gray-600">{doc}</span>
+                          <span className="text-sm text-gray-600">{doc.file_name}</span>
                         </div>
                       ))}
+                      {(!selectedDoctor.documents || selectedDoctor.documents.length === 0) && (
+                        <p className="text-sm text-gray-500">No documents uploaded</p>
+                      )}
                     </div>
                   </div>
 
                   {/* Actions */}
-                  {selectedDoctor.status === 'pending' && (
+                  {!selectedDoctor.is_approved && (
                     <div className="flex space-x-4 pt-4 border-t">
                       <button
                         onClick={() => handleApprove(selectedDoctor.id)}
